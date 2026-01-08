@@ -537,6 +537,111 @@ app.post("/upload", upload.single("image"), (req, res) => {
 });
 
 /* =========================
+   CARTS CRUD
+   Table: carts (id, user_id, product_id)
+   FK: carts.user_id -> users.id
+   FK: carts.product_id -> products.id
+   ========================= */
+
+   // GET cart for a user
+app.get("/carts/user/:user_id", async (req, res) => {
+  const userId = Number(req.params.user_id);
+
+  if (!userId || Number.isNaN(userId)) {
+    return res.status(400).json({ message: "Invalid user_id" });
+  }
+
+  const sql = `
+    SELECT
+      c.id AS cart_id,
+      p.id AS product_id,
+      p.name,
+      p.price,
+      p.image
+    FROM carts c
+    INNER JOIN products p ON c.product_id = p.id
+    WHERE c.user_id = ?
+    ORDER BY c.id DESC
+  `;
+
+  try {
+    const [rows] = await pool.query(sql, [userId]);
+    return res.json(rows);
+  } catch (err) {
+    return dbError(res, err, "GET /carts/user/:user_id");
+  }
+});
+
+// POST add to cart
+app.post("/carts", async (req, res) => {
+  const { user_id, product_id } = req.body;
+
+  if (!user_id || Number.isNaN(Number(user_id))) {
+    return res.status(400).json({ message: "user_id is required and must be a number" });
+  }
+  if (!product_id || Number.isNaN(Number(product_id))) {
+    return res.status(400).json({ message: "product_id is required and must be a number" });
+  }
+
+  try {
+    // check user exists
+    const [u] = await pool.query("SELECT id FROM users WHERE id = ?", [user_id]);
+    if (!u || u.length === 0)
+      return res.status(400).json({ message: "Invalid user_id (user not found)" });
+
+    // check product exists
+    const [p] = await pool.query("SELECT id FROM products WHERE id = ?", [product_id]);
+    if (!p || p.length === 0)
+      return res.status(400).json({ message: "Invalid product_id (product not found)" });
+
+    const sql = "INSERT INTO carts (user_id, product_id) VALUES (?, ?)";
+    const [result] = await pool.execute(sql, [user_id, product_id]);
+
+    return res.status(201).json({
+      message: "Added to cart",
+      id: result.insertId,
+    });
+  } catch (err) {
+    return dbError(res, err, "POST /carts");
+  }
+});
+
+// DELETE cart item by cart id
+app.delete("/carts/:id", async (req, res) => {
+  const id = Number(req.params.id);
+
+  try {
+    const [result] = await pool.execute("DELETE FROM carts WHERE id = ?", [id]);
+    if (result.affectedRows === 0)
+      return res.status(404).json({ message: "Cart item not found" });
+
+    return res.json({ message: "Item removed from cart" });
+  } catch (err) {
+    return dbError(res, err, "DELETE /carts/:id");
+  }
+});
+
+// DELETE clear user cart
+app.delete("/carts/user/:user_id", async (req, res) => {
+  const userId = Number(req.params.user_id);
+
+  if (!userId || Number.isNaN(userId)) {
+    return res.status(400).json({ message: "Invalid user_id" });
+  }
+
+  try {
+    const [result] = await pool.execute("DELETE FROM carts WHERE user_id = ?", [userId]);
+    return res.json({
+      message: "Cart cleared",
+      deleted: result.affectedRows,
+    });
+  } catch (err) {
+    return dbError(res, err, "DELETE /carts/user/:user_id");
+  }
+});
+
+
+/* =========================
    Start server
    ========================= */
 const port = process.env.PORT || 3000;
